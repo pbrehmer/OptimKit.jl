@@ -4,6 +4,7 @@ using LinearAlgebra: LinearAlgebra
 using Printf
 using ScopedValues
 using VectorInterface
+using NaNMath
 using Base: @kwdef
 
 # Default values for the keyword arguments using ScopedValues
@@ -14,6 +15,7 @@ const LS_VERBOSITY = ScopedValue(1)
 const GRADTOL = ScopedValue(1e-8)
 const MAXITER = ScopedValue(1_000_000)
 const VERBOSITY = ScopedValue(1)
+const GROWFACTOR = ScopedValue(1.5)
 
 # Default values for the manifold structure
 _retract(x, d, α) = (add(x, d, α), d)
@@ -116,7 +118,7 @@ const lbfgs = LBFGS()
 export optimize, gd, cg, lbfgs, optimtest
 export GradientDescent, ConjugateGradient, LBFGS
 export FletcherReeves, HestenesStiefel, PolakRibiere, HagerZhang, DaiYuan
-export HagerZhangLineSearch
+export HagerZhangLineSearch, BackTrackingLineSearch
 
 """
     optimtest(fg, x, [d]; alpha = -0.1:0.001:0.1, retract = _retract, inner = _inner)

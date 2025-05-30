@@ -37,6 +37,8 @@ struct LBFGS{T<:Real,L<:AbstractLineSearch} <: OptimizationAlgorithm
     acceptfirst::Bool
     verbosity::Int
     linesearch::L
+    scalestep::Bool
+    growfactor::T
 end
 function LBFGS(m::Int=8;
                acceptfirst::Bool=true,
@@ -49,8 +51,11 @@ function LBFGS(m::Int=8;
                linesearch::AbstractLineSearch=HagerZhangLineSearch(;
                                                                    maxiter=ls_maxiter,
                                                                    maxfg=ls_maxfg,
-                                                                   verbosity=ls_verbosity))
-    return LBFGS(m, maxiter, gradtol, acceptfirst, verbosity, linesearch)
+                                                                   verbosity=ls_verbosity),
+               scalestep::Bool=false,
+               growfactor::Real=GROWFACTOR[])
+    return LBFGS(m, maxiter, gradtol, acceptfirst, verbosity, linesearch, scalestep,
+                 growfactor)
 end
 
 function optimize(fg, x, alg::LBFGS;
@@ -82,6 +87,11 @@ function optimize(fg, x, alg::LBFGS;
     verbosity >= 2 &&
         @info @sprintf("LBFGS: initializing with f = %.12f, ‖∇f‖ = %.4e", f, normgrad)
 
+    # set optional step scaling
+    α00 = one(f)
+    _scale_step(α) = alg.scalestep ? scale(α, alg.growfactor) : α00
+    α0 = α00
+
     while !(_hasconverged || _shouldstop)
         # compute new search direction
         if length(H) > 0
@@ -92,7 +102,7 @@ function optimize(fg, x, alg::LBFGS;
         else
             Pg = precondition(x, deepcopy(g))
             normPg = sqrt(inner(x, Pg, Pg))
-            η = scale!(Pg, -0.01 / normPg) # initial guess: scale invariant
+            η = scale!(Pg, -1 / normPg) # initial guess: scale invariant
         end
 
         # store current quantities as previous quantities
@@ -105,7 +115,7 @@ function optimize(fg, x, alg::LBFGS;
         _glast[] = g
         _dlast[] = η
         x, f, g, ξ, α, nfg = alg.linesearch(fg, x, η, (f, g);
-                                            initialguess=one(f),
+                                            initialguess=α0,
                                             acceptfirst=alg.acceptfirst,
                                             # for some reason, line search seems to converge to solution alpha = 2 in most cases if acceptfirst = false. If acceptfirst = true, the initial value of alpha can immediately be accepted. This typically leads to a more erratic convergence of normgrad, but to less function evaluations in the end.
                                             retract=retract, inner=inner)
@@ -187,6 +197,7 @@ function optimize(fg, x, alg::LBFGS;
             ρ = innerss / innersy
             push!(H, (scale!(s, 1 / norms), scale!(y, 1 / norms), ρ))
         end
+        α0 = _scale_step(α)
     end
     if _hasconverged
         verbosity >= 2 &&

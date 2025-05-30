@@ -395,9 +395,150 @@ function bracket(iter::HagerZhangLineSearchIterator{T}, c::LineSearchPoint) wher
             verbosity >= 4 &&
                 @info @sprintf("  Linesearch bracket step: c = %.2e, dϕᶜ = %.2e, ϕᶜ - ϕ₀ = %.2e",
                                c.α, c.dϕ, c.ϕ - p₀.ϕ)
-            # if checkexactwolfe(c, p₀, c₁, c₂) || checkapproxwolfe(c, p₀, c₁, c₂, ϵ)
-            #     return c, c, numfg
-            # end
+            if checkexactwolfe(c, p₀, c₁, c₂) || checkapproxwolfe(c, p₀, c₁, c₂, ϵ)
+                return c, c, numfg
+            end
         end
     end
+end
+
+# Backtracking attempt
+# --------------------
+
+# shamelessly copied from
+# https://github.com/JuliaNLSolvers/LineSearches.jl/blob/master/src/backtracking.jl
+
+struct BackTrackingLineSearch{T<:Real} <: AbstractLineSearch
+    c₁::T
+    ρ_hi::T
+    ρ_lo::T
+    maxstep::T
+    order::Int
+    maxiter::Int
+    maxfg::Int
+    verbosity::Int
+end
+function BackTrackingLineSearch(;
+                                c₁::Real=1e-4,
+                                ρ_hi::Real=0.5,
+                                ρ_lo::Real=0.1,
+                                maxstep::Real=Inf,
+                                order::Int=3,
+                                maxiter::Int=LS_MAXITER[],
+                                maxfg::Int=LS_MAXFG[],
+                                verbosity::Int=LS_VERBOSITY[])
+    return BackTrackingLineSearch(promote(c₁, ρ_hi, ρ_lo, maxstep)..., order, maxiter,
+                                  maxfg, verbosity)
+end
+
+function (ls::BackTrackingLineSearch)(fg, x₀, η₀, fg₀=fg(x₀);
+                                      retract=_retract, inner=_inner,
+                                      initialguess::Real=one(fg₀[1]),
+                                      acceptfirst::Bool=false,
+                                      maxiter::Int=ls.maxiter,
+                                      maxfg::Int=ls.maxfg,
+                                      verbosity::Int=ls.verbosity)
+
+    # initialize
+    (f₀, g₀) = fg₀
+    ϕ₀ = f₀
+    dϕ₀ = inner(x₀, g₀, η₀)
+
+    # translate
+    αinitial = initialguess
+    ϕ_0 = ϕ₀
+    dϕ_0 = dϕ₀
+    Tα = typeof(αinitial)
+    c_1 = ls.c₁
+    ρ_hi = ls.ρ_hi
+    ρ_lo = ls.ρ_lo
+    iterations = maxiter
+    order = ls.order
+
+    iterfinitemax = -log2(eps(real(Tα)))
+
+    @assert order in (2, 3)
+
+    # Count the total number of iterations and function applications
+    iteration = 0
+    numfg = 0
+
+    # Wrap retraction and function evaluation
+    function move(α)
+        numfg += 1
+        x, ξ = retract(x₀, η₀, α)
+        f, g = fg(x)
+        return x, f, g, ξ
+    end
+
+    ϕx_0, ϕx_1 = ϕ_0, ϕ_0
+
+    α_1, α_2 = αinitial, αinitial
+
+    # Evaluate f(x) at proposed position
+    x, ϕx_1, g, ξ = move(α_1)
+
+    # Hard-coded backtrack until we find a finite function value
+    iterfinite = 0
+    while !isfinite(ϕx_1) && iterfinite < iterfinitemax
+        iterfinite += 1
+        α_1 = α_2
+        α_2 = α_1 / 2
+
+        x, ϕx_1, g, ξ = move(α_2)
+    end
+
+    # Backtrack until we satisfy sufficient decrease condition
+    cancel = false
+    while ϕx_1 > ϕ_0 + c_1 * α_2 * dϕ_0
+        # Increment the number of steps we've had to perform
+        iteration += 1
+
+        # Ensure termination
+        if iteration > iterations || numfg >= maxfg
+            verbosity >= 1 &&
+                @warn "Linesearch not converged after $iterations iterations and $numfg function evaluations; α = $(α_2)"
+            cancel = true
+            break
+        end
+
+        # Shrink proposed step-size:
+        if order == 2 || iteration == 1
+            α_tmp = -(dϕ_0 * α_2^2) / (2 * (ϕx_1 - ϕ_0 - dϕ_0 * α_2))
+        else
+            div = one(Tα) / (α_1^2 * α_2^2 * (α_2 - α_1))
+            a = (α_1^2 * (ϕx_1 - ϕ_0 - dϕ_0 * α_2) - α_2^2 * (ϕx_0 - ϕ_0 - dϕ_0 * α_1)) *
+                div
+            b = (-α_1^3 * (ϕx_1 - ϕ_0 - dϕ_0 * α_2) + α_2^3 * (ϕx_0 - ϕ_0 - dϕ_0 * α_1)) *
+                div
+
+            if isapprox(a, zero(a); atol=eps(real(Tα)))
+                α_tmp = dϕ_0 / (2 * b)
+            else
+                # discriminant
+                d = max(b^2 - 3 * a * dϕ_0, Tα(0))
+                # quadratic equation root
+                α_tmp = (-b + sqrt(d)) / (3 * a)
+            end
+        end
+
+        α_1 = α_2
+
+        α_tmp = NaNMath.min(α_tmp, α_2 * ρ_hi) # avoid too small reductions
+        α_2 = NaNMath.max(α_tmp, α_2 * ρ_lo) # avoid too big reductions
+
+        # Evaluate f(x) at proposed position
+        x, f, g, ξ = move(α_2)
+
+        # Shift
+        ϕx_0, ϕx_1 = ϕx_1, f
+    end
+
+    if cancel
+        # take forced step
+        α_2 /= 2 # but be very careful...
+        x, ϕx_1, g, ξ = move(α_2)
+    end
+
+    return x, ϕx_1, g, ξ, α_2, numfg
 end
