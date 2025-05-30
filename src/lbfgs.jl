@@ -133,6 +133,9 @@ function optimize(fg, x, alg::LBFGS;
         # check stopping criteria and print info
         if _hasconverged || _shouldstop
             break
+        elseif α ≈ 0
+            @warn @sprintf("LBFGS: stopping optimization because α ≈ 0: $α")
+            break
         end
         verbosity >= 3 &&
             @info @sprintf("LBFGS: iter %4d, time %7.2f s: f = %.12f, ‖∇f‖ = %.4e, α = %.2e, m = %d, nfg = %d",
