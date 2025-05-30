@@ -329,11 +329,12 @@ function bisect(iter::HagerZhangLineSearchIterator, a::LineSearchPoint, b::LineS
     c₁ = iter.parameters.c₁
     c₂ = iter.parameters.c₂
     ϵ = iter.parameters.ϵ
+    maxfg = iter.parameters.maxfg
     verbosity = iter.verbosity
     fmax = p₀.f + ϵ
     numfg = 0
     while true
-        if (b.α - a.α) <= eps(one(a.α))
+        if numfg >= maxfg || (b.α - a.α) <= eps(one(a.α))
             if verbosity >= 1
                 @warn @sprintf("  Linesearch bisection failure: [a, b] = [%.2e, %.2e], b-a = %.2e, dϕᵃ = %.2e, dϕᵇ = %.2e, (ϕᵇ - ϕᵃ)/(b-a) = %.2e",
                                a.α, b.α, b.α - a.α, a.dϕ, b.dϕ, (b.ϕ - a.ϕ) / (b.α - a.α))
@@ -368,13 +369,14 @@ function bracket(iter::HagerZhangLineSearchIterator{T}, c::LineSearchPoint) wher
     c₁ = iter.parameters.c₁
     c₂ = iter.parameters.c₂
     ϵ = iter.parameters.ϵ
+    maxfg = iter.parameters.maxfg
     verbosity = iter.verbosity
     a = p₀
     fmax = a.f + ϵ
 
     α = c.α
     while true
-        while !(isfinite(c.ϕ) && isfinite(c.dϕ))
+        while numfg < maxfg && !(isfinite(c.ϕ) && isfinite(c.dϕ))
             α = (a.α + α) / 2
             c = takestep(iter, α)
             numfg += 1
@@ -402,8 +404,8 @@ function bracket(iter::HagerZhangLineSearchIterator{T}, c::LineSearchPoint) wher
     end
 end
 
-# Backtracking attempt
-# --------------------
+# Backtracking attempt by Lander (@leburgel)
+# ------------------------------------------
 
 # shamelessly copied from
 # https://github.com/JuliaNLSolvers/LineSearches.jl/blob/master/src/backtracking.jl
