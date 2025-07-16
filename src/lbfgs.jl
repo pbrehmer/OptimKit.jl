@@ -137,9 +137,11 @@ function optimize(fg, x, alg::LBFGS;
             @warn "LBFGS: stopping optimization because α ≈ 0: $α"
             break
         end
-        verbosity >= 3 &&
-            @info @sprintf("LBFGS: iter %4d, time %7.2f s: f = %.12f, ‖∇f‖ = %.4e, α = %.2e, m = %d, nfg = %d",
-                           numiter, t, f, normgrad, α, length(H), nfg)
+        if verbosity >= 3
+            Δf = f - fhistory[end]
+            @info @sprintf("LBFGS: iter %4d, time %7.2f s: f = %.12f, ‖∇f‖ = %.4e, Δf = %.4e, α = %.2e, m = %d, nfg = %d",
+                           numiter, t, f, normgrad, Δf, α, length(H), nfg)
+        end
 
         # transport gprev, ηprev and vectors in Hessian approximation to x
         gprev = transport!(gprev, xprev, ηprev, α, x)
