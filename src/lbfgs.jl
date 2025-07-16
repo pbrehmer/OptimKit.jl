@@ -138,7 +138,7 @@ function optimize(fg, x, alg::LBFGS;
             break
         end
         if verbosity >= 3
-            Δf = f - fhistory[end]
+            Δf = f - fhistory[end-1]
             @info @sprintf("LBFGS: iter %4d, time %7.2f s: f = %.12f, ‖∇f‖ = %.4e, Δf = %.4e, α = %.2e, m = %d, nfg = %d",
                            numiter, t, f, normgrad, Δf, α, length(H), nfg)
         end
