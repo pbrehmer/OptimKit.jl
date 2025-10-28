@@ -124,6 +124,7 @@ function optimize(fg, x, alg::LBFGS;
         x, f, g = finalize!(x, f, g, numiter)
         innergg = inner(x, g, g)
         normgrad = sqrt(innergg)
+        maxgrad = norm(g, Inf) # TODO: this is hacky since norm is not generally defined for any opt. type
         push!(fhistory, f)
         push!(normgradhistory, normgrad)
         t = time() - t₀
@@ -139,8 +140,8 @@ function optimize(fg, x, alg::LBFGS;
         end
         if verbosity >= 3
             Δf = f - fhistory[end-1]
-            @info @sprintf("LBFGS: iter %4d, time %7.2f s: f = %.12f, ‖∇f‖ = %.4e, Δf = %.4e, α = %.2e, m = %d, nfg = %d",
-                           numiter, t, f, normgrad, Δf, α, length(H), nfg)
+            @info @sprintf("LBFGS: iter %4d, time %7.2f s: f = %.12f, ‖∇f‖ = %.4e, ‖∇f‖∞ = %.4e, Δf = %.4e, α = %.2e, m = %d, nfg = %d",
+                           numiter, t, f, normgrad, maxgrad, Δf, α, length(H), nfg)
         end
 
         # transport gprev, ηprev and vectors in Hessian approximation to x
